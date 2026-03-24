@@ -2,6 +2,8 @@
 
 A command-line assistant for zsh. Describe what you want to do in plain English, and `how` generates the shell command for you — ready to execute or edit. When a command fails, `fix` suggests the corrected version.
 
+![demo](assets/how.gif)
+
 ## Setup
 
 Add the following to your `.zshrc`:
