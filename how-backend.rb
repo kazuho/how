@@ -14,6 +14,12 @@
 require "open3"
 require "tempfile"
 
+def shell_env
+  shell = File.basename(ENV["SHELL"] || "sh")
+  uname = `uname -a 2>/dev/null`.strip
+  "#{shell} on #{uname}"
+end
+
 def main
   mode = ARGV.shift
 
@@ -42,7 +48,7 @@ def run_how
     1. A brief explanation of what the command does (1-2 lines, optional if obvious).
     2. A line that starts with exactly `COMMAND: ` followed by the shell command.
 
-    The user's current shell is zsh on macOS. Current directory: #{cwd}
+    The user's current shell is #{shell_env}. Current directory: #{cwd}
 
     Always respond with exactly one COMMAND: line. If the task requires multiple commands, chain them with && or ; or pipes as appropriate.
     Do not wrap the command in backticks or code blocks.
@@ -79,7 +85,7 @@ def run_fixit
     1. A brief explanation of what you changed (1-2 lines).
     2. A line that starts with exactly `COMMAND: ` followed by the corrected shell command.
 
-    The user's current shell is zsh on macOS. Current directory: #{cwd}
+    The user's current shell is #{shell_env}. Current directory: #{cwd}
 
     Always respond with exactly one COMMAND: line.
     Do not wrap the command in backticks or code blocks.
