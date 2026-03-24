@@ -54,7 +54,7 @@ fix() {
   fi
 
   local result
-  result=$("$HOW_DIR/how-backend.rb" fixit "$PWD" "$_HOW_LAST_EXIT" "$_HOW_LAST_CMD")
+  result=$("$HOW_DIR/how-backend.rb" fixit "$PWD" "$_HOW_LAST_EXIT" "$_HOW_LAST_CMD" -- "$@")
 
   if [[ $? -ne 0 ]]; then
     return 1

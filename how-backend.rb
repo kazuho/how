@@ -59,13 +59,24 @@ def run_fixit
 
   cwd = ARGV[0]
   exit_code = ARGV[1]
-  failed_cmd = ARGV[2..].join(" ")
+
+  # Split on "--" separator: args before are <failed_command>, after are <user instructions>
+  sep = ARGV[2..].index("--")
+  if sep
+    failed_cmd = ARGV[2, sep].join(" ")
+    user_hint = ARGV[(2 + sep + 1)..].join(" ")
+  else
+    failed_cmd = ARGV[2..].join(" ")
+    user_hint = ""
+  end
 
   system_prompt = <<~PROMPT
-    You are a shell command fixer. The user ran a command that failed, and you need to provide the corrected command.
+    You are a shell command fixer. The user ran a command and wants to fix or modify it.
+    If the command failed (non-zero exit code), diagnose and correct the error.
+    If the user provides additional instructions, modify the command accordingly.
 
     Respond with:
-    1. A brief explanation of what went wrong and how you fixed it (1-2 lines).
+    1. A brief explanation of what you changed (1-2 lines).
     2. A line that starts with exactly `COMMAND: ` followed by the corrected shell command.
 
     The user's current shell is zsh on macOS. Current directory: #{cwd}
@@ -74,7 +85,10 @@ def run_fixit
     Do not wrap the command in backticks or code blocks.
   PROMPT
 
-  generate("#{system_prompt}\nFailed command: #{failed_cmd}\nExit code: #{exit_code}")
+  request = "Previous command: #{failed_cmd}\nExit code: #{exit_code}"
+  request += "\nUser instructions: #{user_hint}" unless user_hint.empty?
+
+  generate("#{system_prompt}\n#{request}")
 end
 
 def generate(full_prompt)
