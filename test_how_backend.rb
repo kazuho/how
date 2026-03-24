@@ -1,0 +1,107 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require_relative "how-backend"
+
+class TestParseResponse < Minitest::Test
+  def test_simple_command
+    response = "COMMAND: ls -lS"
+    cmd, explanation = How.parse_response(response)
+    assert_equal "ls -lS", cmd
+    assert_equal "", explanation
+  end
+
+  def test_command_with_explanation
+    response = "Lists files sorted by size.\n\nCOMMAND: ls -lS"
+    cmd, explanation = How.parse_response(response)
+    assert_equal "ls -lS", cmd
+    assert_equal "Lists files sorted by size.", explanation
+  end
+
+  def test_command_with_backticks
+    response = "COMMAND: `ls -lS`"
+    cmd, explanation = How.parse_response(response)
+    assert_equal "ls -lS", cmd
+  end
+
+  def test_command_with_triple_backticks
+    response = "COMMAND: ```ls -lS```"
+    cmd, explanation = How.parse_response(response)
+    assert_equal "ls -lS", cmd
+  end
+
+  def test_no_command_returns_nil
+    response = "I don't know how to do that."
+    cmd, explanation = How.parse_response(response)
+    assert_nil cmd
+  end
+
+  def test_multiline_explanation
+    response = "This finds all Ruby files.\nIt searches recursively.\n\nCOMMAND: find . -name '*.rb'"
+    cmd, explanation = How.parse_response(response)
+    assert_equal "find . -name '*.rb'", cmd
+    assert_equal "This finds all Ruby files.\nIt searches recursively.", explanation
+  end
+
+  def test_multiple_command_lines_takes_first
+    response = "COMMAND: ls -l\nCOMMAND: ls -la"
+    cmd, _explanation = How.parse_response(response)
+    assert_equal "ls -l", cmd
+  end
+end
+
+class TestBuildHowPrompt < Minitest::Test
+  def test_includes_cwd
+    prompt = How.build_how_prompt(cwd: "/home/user", prompt: "list files")
+    assert_includes prompt, "/home/user"
+  end
+
+  def test_includes_user_request
+    prompt = How.build_how_prompt(cwd: "/tmp", prompt: "find large files")
+    assert_includes prompt, "find large files"
+  end
+end
+
+class TestBuildFixPrompt < Minitest::Test
+  def test_includes_failed_command
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "gti status", exit_code: "127")
+    assert_includes prompt, "gti status"
+    assert_includes prompt, "127"
+  end
+
+  def test_includes_user_hint
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "0", user_hint: "sort by size")
+    assert_includes prompt, "sort by size"
+  end
+
+  def test_no_user_hint
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "0")
+    refute_includes prompt, "User instructions:"
+  end
+
+  def test_includes_terminal_output
+    prompt = How.build_fix_prompt(
+      cwd: "/tmp", failed_cmd: "gcc foo.c", exit_code: "1",
+      terminal_output: "foo.c:3: error: expected ';'"
+    )
+    assert_includes prompt, "foo.c:3: error: expected ';'"
+    assert_includes prompt, "Recent terminal output:"
+  end
+
+  def test_no_terminal_output
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "0")
+    refute_includes prompt, "Recent terminal output:"
+  end
+end
+
+class TestCaptureTerminalOutput < Minitest::Test
+  def test_no_tmux_no_screen
+    original_tmux = ENV.delete("TMUX")
+    original_sty = ENV.delete("STY")
+    assert_nil How.capture_terminal_output
+  ensure
+    ENV["TMUX"] = original_tmux if original_tmux
+    ENV["STY"] = original_sty if original_sty
+  end
+end
