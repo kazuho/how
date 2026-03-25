@@ -28,8 +28,23 @@ module How
 
   def shell_env
     shell = File.basename(ENV["SHELL"] || "sh")
-    uname = `uname -a 2>/dev/null`.strip
-    "#{shell} on #{uname}"
+    os = `uname -sr 2>/dev/null`.strip
+    "#{shell} on #{os}"
+  end
+
+  def privilege_context
+    uid = `id -u 2>/dev/null`.strip
+    if uid == "0"
+      "Running as root."
+    else
+      user = ENV["USER"] || `whoami 2>/dev/null`.strip
+      privesc = %w[sudo doas].find { |c| system("which #{c} >/dev/null 2>&1") }
+      if privesc
+        "Running as #{user}. Use `#{privesc}` for commands that require root."
+      else
+        "Running as #{user}. Use `su -c '...'` for commands that require root."
+      end
+    end
   end
 
   # Capture recent terminal output from tmux or screen, if available.
@@ -55,10 +70,12 @@ module How
       1. A brief explanation of what the command does (1-2 lines, optional if obvious).
       2. A line that starts with exactly `COMMAND: ` followed by the shell command.
 
-      The user's current shell is #{shell_env}. Current directory: #{cwd}
+      Environment: #{shell_env}
+      Current directory: #{cwd}
+      #{privilege_context}
 
       Before answering:
-      - Run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      - You may run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
       - Check that commands you plan to suggest are actually available.
       - Prefer concise commands tailored to the current environment over generic ones.
 
@@ -79,10 +96,12 @@ module How
       1. A brief explanation of what you changed (1-2 lines).
       2. A line that starts with exactly `COMMAND: ` followed by the corrected shell command.
 
-      The user's current shell is #{shell_env}. Current directory: #{cwd}
+      Environment: #{shell_env}
+      Current directory: #{cwd}
+      #{privilege_context}
 
       Before answering:
-      - Run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      - You may run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
       - Check that commands you plan to suggest are actually available.
       - Prefer concise commands tailored to the current environment over generic ones.
 

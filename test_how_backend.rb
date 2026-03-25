@@ -106,6 +106,29 @@ class TestCaptureTerminalOutput < Minitest::Test
   end
 end
 
+class TestPrivilegeContext < Minitest::Test
+  def test_returns_string
+    ctx = How.privilege_context
+    assert_kind_of String, ctx
+    refute_empty ctx
+  end
+
+  def test_mentions_running_as
+    ctx = How.privilege_context
+    assert_includes ctx, "Running as"
+  end
+
+  def test_prompt_includes_privilege_info
+    prompt = How.build_how_prompt(cwd: "/tmp", prompt: "list files")
+    assert_includes prompt, "Running as"
+  end
+
+  def test_fix_prompt_includes_privilege_info
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "1")
+    assert_includes prompt, "Running as"
+  end
+end
+
 class TestModel < Minitest::Test
   def test_default_model
     ENV.delete("HOW_MODEL")
