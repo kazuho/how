@@ -50,6 +50,9 @@ _how_run() {
   ) &
   local spinner_pid=$!
 
+  # Ensure spinner is cleaned up on interrupt
+  trap "kill $spinner_pid 2>/dev/null; wait $spinner_pid 2>/dev/null; printf '\r  \r' >&2; rm -f '$tmpfile'; return 130" INT TERM
+
   # Run backend in foreground, capture stdout
   "$HOW_DIR/how-backend.rb" "$@" > "$tmpfile"
   local exit_code=$?
@@ -58,6 +61,8 @@ _how_run() {
   kill $spinner_pid 2>/dev/null
   wait $spinner_pid 2>/dev/null
   printf "\r  \r" >&2
+
+  trap - INT TERM
 
   local result=$(<"$tmpfile")
   rm -f "$tmpfile"
