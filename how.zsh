@@ -72,7 +72,7 @@ _how_run() {
   fi
 
   if [[ -n "$result" ]]; then
-    print -z "$result"
+    print -rz -- "$result"
   fi
 }
 
