@@ -8,6 +8,9 @@
 #   how-backend.rb how <cwd> <prompt...>
 #   how-backend.rb fixit <cwd> <exit_code> <failed_command> [-- <user instructions>]
 #
+# Environment variables:
+#   HOW_MODEL - model to use (default: o4-mini)
+#
 # - Outputs the generated command to stdout
 # - Outputs explanation to stderr
 
@@ -15,7 +18,13 @@ require "open3"
 require "tempfile"
 
 module How
+  DEFAULT_MODEL = "5.3-codex-spark"
+
   module_function
+
+  def model
+    ENV["HOW_MODEL"] || DEFAULT_MODEL
+  end
 
   def shell_env
     shell = File.basename(ENV["SHELL"] || "sh")
@@ -83,14 +92,14 @@ module How
   def call_codex(prompt)
     tmpfile = Tempfile.new("how")
     begin
-      _stdout, _stderr, status = Open3.capture3(
-        "codex", "exec",
+      cmd = ["codex", "exec",
         "--skip-git-repo-check",
         "-C", ENV["HOME"],
-        "-s", "read-only",
-        "-o", tmpfile.path,
-        prompt
-      )
+        "-s", "read-only"]
+      cmd += ["-m", model] if ENV["HOW_MODEL"]
+      cmd += ["-o", tmpfile.path, prompt]
+
+      _stdout, _stderr, status = Open3.capture3(*cmd)
 
       return nil unless status.success?
 

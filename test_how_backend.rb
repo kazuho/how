@@ -105,3 +105,18 @@ class TestCaptureTerminalOutput < Minitest::Test
     ENV["STY"] = original_sty if original_sty
   end
 end
+
+class TestModel < Minitest::Test
+  def test_default_model
+    ENV.delete("HOW_MODEL")
+    assert_equal "5.3-codex-spark", How.model
+  end
+
+  def test_custom_model
+    ENV["HOW_MODEL"] = "gpt-4o"
+    assert_equal "gpt-4o", How.model
+  ensure
+    ENV.delete("HOW_MODEL")
+  end
+end
+
