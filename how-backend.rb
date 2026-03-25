@@ -57,6 +57,8 @@ module How
 
       The user's current shell is #{shell_env}. Current directory: #{cwd}
 
+      You may run read-only commands to investigate the system before answering (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+
       Always respond with exactly one COMMAND: line. If the task requires multiple commands, chain them with && or ; or pipes as appropriate.
       Do not wrap the command in backticks or code blocks.
 
@@ -75,6 +77,8 @@ module How
       2. A line that starts with exactly `COMMAND: ` followed by the corrected shell command.
 
       The user's current shell is #{shell_env}. Current directory: #{cwd}
+
+      You may run read-only commands to investigate the system before answering (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
 
       Always respond with exactly one COMMAND: line.
       Do not wrap the command in backticks or code blocks.
