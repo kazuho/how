@@ -57,7 +57,10 @@ module How
 
       The user's current shell is #{shell_env}. Current directory: #{cwd}
 
-      You may run read-only commands to investigate the system before answering (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      Before answering:
+      - Run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      - Check that commands you plan to suggest are actually available.
+      - Prefer concise commands tailored to the current environment over generic ones.
 
       Always respond with exactly one COMMAND: line. If the task requires multiple commands, chain them with && or ; or pipes as appropriate.
       Do not wrap the command in backticks or code blocks.
@@ -78,7 +81,10 @@ module How
 
       The user's current shell is #{shell_env}. Current directory: #{cwd}
 
-      You may run read-only commands to investigate the system before answering (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      Before answering:
+      - Run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      - Check that commands you plan to suggest are actually available.
+      - Prefer concise commands tailored to the current environment over generic ones.
 
       Always respond with exactly one COMMAND: line.
       Do not wrap the command in backticks or code blocks.
