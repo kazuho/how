@@ -20,13 +20,13 @@ source /path/to/how.zsh
 
 ## Usage
 
+### how
+
 ```
 how <what you want to do>
 ```
 
 The generated command appears at your prompt. Press Enter to run it, or edit it first.
-
-### Examples
 
 ```
 how do I find all TODO comments in this project
@@ -36,7 +36,11 @@ how do I compress this directory into a tar.gz
 
 ### fix
 
-When a command fails, type `fix` to get a corrected version:
+```
+fix [optional instructions]
+```
+
+Fixes or modifies the previous command. Without arguments, it diagnoses and corrects the failure. With arguments, it modifies the command as instructed (e.g., `fix sort by date`).
 
 ```
 $ gti status
@@ -45,3 +49,5 @@ $ fix
 # `gti` is a typo — replacing with `git`.
 git status             # ← appears at your prompt, ready to run
 ```
+
+When running inside [tmux](https://github.com/tmux/tmux) or [GNU screen](https://www.gnu.org/software/screen/), `fix` can read the recent terminal output to see error messages, helping it diagnose problems more accurately.
