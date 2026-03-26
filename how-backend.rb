@@ -28,6 +28,19 @@ module How
 
   module_function
 
+  def debug?
+    ENV["HOW_DEBUG"] == "1"
+  end
+
+  def debug_log(label, obj)
+    return unless debug?
+    if obj.is_a?(String)
+      $stderr.puts "[how-debug] #{label}: #{obj}"
+    else
+      $stderr.puts "[how-debug] #{label}: #{JSON.pretty_generate(obj)}"
+    end
+  end
+
   def model_config
     base_url = ENV["HOW_URI"]
     model_name = ENV["HOW_MODEL"]
@@ -88,7 +101,7 @@ module How
 
   def investigate_instruction
     if model_config[:type] == :api
-      "Use the run_command tool to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm)."
+      "Use the run_command tool to investigate the system. To call a tool, respond with a JSON tool_call object, not with XML tags or text."
     else
       "You may run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm)."
     end
@@ -169,54 +182,28 @@ module How
     }
   }.freeze
 
-  ALLOWED_COMMANDS = %w[
-    which where type
-    ls stat file find
-    cat head tail wc
-    grep egrep fgrep rg
-    man help
-    uname hostname id whoami
-    env printenv
-    pkg-config
-    sw_vers lsb_release
-    ps
-  ].freeze
+  SANDBOX_PROFILE_MACOS = "(version 1)(allow default)(deny network*)(deny file-write*)(allow file-write* (literal \"/dev/null\"))"
 
-  # Package managers: only allow read-only subcommands
-  PKG_MANAGER_READ_ONLY = {
-    "dpkg"   => %w[-l -L -s -S --list --listfiles --status --search],
-    "apt"    => %w[list show search],
-    "rpm"    => %w[-q -qa -qi -ql --query],
-    "yum"    => %w[list info search],
-    "dnf"    => %w[list info search],
-    "pacman" => %w[-Q -Qi -Ql -Ss -Si],
-    "apk"    => %w[list info search],
-    "brew"   => %w[list info search ls leaves deps],
-    "port"   => %w[list installed search info],
-    "pkg"    => %w[info list search query],
-  }.freeze
-
-  def command_allowed?(cmd)
-    words = cmd.strip.split(/\s+/)
-    first_word = words.first
-    return true if ALLOWED_COMMANDS.include?(first_word)
-
-    if PKG_MANAGER_READ_ONLY.key?(first_word)
-      subcmd = words[1]
-      return subcmd && PKG_MANAGER_READ_ONLY[first_word].any? { |allowed| subcmd.start_with?(allowed) }
+  def sandbox_command(cmd)
+    if RUBY_PLATFORM =~ /darwin/
+      ["sandbox-exec", "-p", SANDBOX_PROFILE_MACOS, "sh", "-c", cmd]
+    elsif system("which bwrap >/dev/null 2>&1")
+      ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--unshare-net", "sh", "-c", cmd]
+    else
+      nil
     end
-
-    false
   end
 
   def execute_tool(name, arguments)
     case name
     when "run_command"
       cmd = arguments["command"]
-      unless command_allowed?(cmd)
-        return "Error: only read-only commands are allowed (e.g., which, ls, grep, man, dpkg, brew list). '#{cmd}' was rejected."
+      sandboxed = sandbox_command(cmd)
+      if sandboxed
+        output, _status = Open3.capture2e(*sandboxed)
+      else
+        return "Error: no sandbox available (install bubblewrap for sandboxed command execution)"
       end
-      output, _status = Open3.capture2e(cmd)
       output.strip
     else
       "Unknown tool: #{name}"
@@ -234,8 +221,9 @@ module How
       { role: "system", content: system },
       { role: "user", content: user_message }
     ]
+    debug_log "request", messages
 
-    MAX_TOOL_ROUNDS.times do
+    MAX_TOOL_ROUNDS.times do |round|
       body = {
         model: config[:model],
         messages: messages,
@@ -254,16 +242,21 @@ module How
 
       data = JSON.parse(response.body)
       choice = data.dig("choices", 0, "message")
+      debug_log "response[#{round}]", choice
+
+      # Some models (e.g., Qwen) put chain-of-thought in a separate field
+      # and leave content null until thinking is done
+      reasoning = choice["reasoning_content"] || choice["thinking"]
+      text_content = choice["content"]
 
       tool_calls = choice["tool_calls"]
       if tool_calls && !tool_calls.empty?
-        # Add assistant message with tool calls
         messages << choice
 
-        # Execute each tool call and add results
         tool_calls.each do |tc|
           args = JSON.parse(tc.dig("function", "arguments"))
           result = execute_tool(tc.dig("function", "name"), args)
+          debug_log "tool[#{tc.dig("function", "name")}]", result
           messages << {
             role: "tool",
             tool_call_id: tc["id"],
@@ -271,10 +264,14 @@ module How
           }
         end
       else
-        # Text response — check if it has the required COMMAND: line
-        text = choice["content"]&.strip
-        return text unless text.nil? || text.empty?
-        return nil if text.nil? || text.empty?
+        text = text_content&.strip
+        text = reasoning&.strip if text.nil? || text.empty?
+        if text.nil? || text.empty?
+          $stderr.puts "how: model returned empty content"
+          return nil
+        end
+        # Strip <think>...</think> tags if present
+        text = text.gsub(%r{<think>.*?</think>}m, "").strip
 
         cmd, _ = parse_response(text)
         return text if cmd
@@ -286,6 +283,9 @@ module How
     end
 
     $stderr.puts "how: too many rounds"
+    nil
+  rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Net::OpenTimeout, Net::ReadTimeout => e
+    $stderr.puts "how: API connection error: #{e.message}"
     nil
   end
 

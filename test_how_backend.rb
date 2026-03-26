@@ -174,24 +174,26 @@ class TestModelConfig < Minitest::Test
 end
 
 class TestExecuteTool < Minitest::Test
-  def test_allowed_command
+  def test_read_command_succeeds
     result = How.execute_tool("run_command", { "command" => "which ls" })
-    refute_includes result, "rejected"
+    assert_includes result, "ls"
   end
 
-  def test_blocked_command
-    result = How.execute_tool("run_command", { "command" => "brew install foo" })
-    assert_includes result, "rejected"
+  def test_write_blocked_by_sandbox
+    result = How.execute_tool("run_command", { "command" => "touch /tmp/how_sandbox_test_#{$$}" })
+    # sandbox-exec denies file-write, bwrap mounts read-only
+    refute File.exist?("/tmp/how_sandbox_test_#{$$}")
   end
 
-  def test_ls_allowed
-    result = How.execute_tool("run_command", { "command" => "ls /tmp" })
-    refute_includes result, "rejected"
+  def test_network_blocked_by_sandbox
+    result = How.execute_tool("run_command", { "command" => "curl -s --max-time 2 http://example.com" })
+    # should fail due to network denial
+    refute_includes result, "Example Domain"
   end
 
-  def test_grep_allowed
-    result = How.execute_tool("run_command", { "command" => "grep -r foo /dev/null" })
-    refute_includes result, "rejected"
+  def test_compound_command_works
+    result = How.execute_tool("run_command", { "command" => "pwd && ls /tmp" })
+    refute_empty result
   end
 
   def test_unknown_tool
@@ -200,40 +202,16 @@ class TestExecuteTool < Minitest::Test
   end
 end
 
-class TestCommandAllowed < Minitest::Test
-  def test_which
-    assert How.command_allowed?("which sudo")
+class TestSandboxCommand < Minitest::Test
+  def test_returns_array
+    cmd = How.sandbox_command("ls")
+    assert_kind_of Array, cmd
   end
 
-  def test_ls
-    assert How.command_allowed?("ls -la /tmp")
-  end
-
-  def test_brew_list_allowed
-    assert How.command_allowed?("brew list")
-  end
-
-  def test_brew_info_allowed
-    assert How.command_allowed?("brew info clang-format")
-  end
-
-  def test_brew_install_blocked
-    refute How.command_allowed?("brew install foo")
-  end
-
-  def test_brew_upgrade_blocked
-    refute How.command_allowed?("brew upgrade foo")
-  end
-
-  def test_rm_blocked
-    refute How.command_allowed?("rm -rf /")
-  end
-
-  def test_curl_blocked
-    refute How.command_allowed?("curl http://example.com")
-  end
-
-  def test_apt_allowed
-    assert How.command_allowed?("apt list --installed")
+  def test_includes_shell
+    cmd = How.sandbox_command("ls -la")
+    assert_includes cmd, "sh"
+    assert_includes cmd, "-c"
+    assert_includes cmd, "ls -la"
   end
 end

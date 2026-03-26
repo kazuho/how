@@ -6,23 +6,31 @@ HOW_DIR="${0:a:h}"
 
 # Hooks to track the last command and its exit status.
 # Skip our own commands so fix sees the actual failed command.
-_how_preexec() {
-  case "$1" in
-    how\ *|fix|fix\ *) ;;
-    *) _HOW_LAST_CMD="$1" ;;
+_how_is_own_cmd() {
+  # Strip leading env var assignments (e.g., "HOW_DEBUG=1 fix" → "fix")
+  local cmd="$1"
+  while [[ "$cmd" == [A-Za-z_]*=* ]]; do
+    cmd="${cmd#* }"
+  done
+  case "$cmd" in
+    how\ *|fix|fix\ *) return 0 ;;
   esac
+  return 1
+}
+_how_preexec() {
+  _how_is_own_cmd "$1" || _HOW_LAST_CMD="$1"
 }
 _how_precmd() {
   local e=$?
-  # Only update if preexec recorded a command (i.e., it wasn't skipped)
   [[ -n "$_HOW_PENDING" ]] && _HOW_LAST_EXIT=$e
   _HOW_PENDING=
 }
 _how_preexec_mark() {
-  case "$1" in
-    how\ *|fix|fix\ *) _HOW_PENDING= ;;
-    *) _HOW_PENDING=1 ;;
-  esac
+  if _how_is_own_cmd "$1"; then
+    _HOW_PENDING=
+  else
+    _HOW_PENDING=1
+  fi
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _how_preexec
