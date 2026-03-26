@@ -2,28 +2,50 @@
 # frozen_string_literal: true
 
 # how-backend.rb - Backend for the `how` and `fix` zsh commands
-# Calls codex to generate shell commands from natural language.
+# Calls an LLM to generate shell commands from natural language.
 #
 # Usage:
 #   how-backend.rb how <cwd> <prompt...>
 #   how-backend.rb fixit <cwd> <exit_code> <failed_command> [-- <user instructions>]
 #
 # Environment variables:
-#   HOW_MODEL - model to use (default: o4-mini)
+#   HOW_URI   - OpenAI-compatible API base URL (e.g., "http://host:11434").
+#               If set, uses the API directly instead of codex CLI.
+#   HOW_MODEL - model name. If HOW_URI is set and HOW_MODEL is not, auto-detects
+#               from the endpoint. If HOW_URI is not set, passed to codex CLI.
 #
 # - Outputs the generated command to stdout
 # - Outputs explanation to stderr
 
 require "open3"
 require "tempfile"
+require "net/http"
+require "json"
+require "uri"
 
 module How
-  DEFAULT_MODEL = "5.3-codex-spark"
+  MAX_TOOL_ROUNDS = 5
 
   module_function
 
-  def model
-    ENV["HOW_MODEL"] || DEFAULT_MODEL
+  def model_config
+    base_url = ENV["HOW_URI"]
+    model_name = ENV["HOW_MODEL"]
+    if base_url
+      model_name = detect_model(base_url) if model_name.nil? || model_name.empty?
+      { type: :api, base_url: base_url, model: model_name }
+    else
+      { type: :codex, model: model_name }
+    end
+  end
+
+  def detect_model(base_url)
+    uri = URI("#{base_url}/v1/models")
+    response = Net::HTTP.get_response(uri)
+    data = JSON.parse(response.body)
+    data["data"]&.first&.dig("id") || "default"
+  rescue
+    "default"
   end
 
   def shell_env
@@ -64,9 +86,20 @@ module How
     nil
   end
 
-  def build_how_prompt(cwd:, prompt:)
+  def investigate_instruction
+    if model_config[:type] == :api
+      "Use the run_command tool to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm)."
+    else
+      "You may run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm)."
+    end
+  end
+
+  def system_prompt_how(cwd:, prompt:)
     <<~PROMPT
-      You are a shell command generator. The user describes what they want to do, and you respond with:
+      You are a shell command generator. The user describes what they want to do, and you suggest the command for them to run.
+      Do NOT execute the user's request yourself. Only suggest the command.
+
+      Respond with:
       1. A brief explanation of what the command does (1-2 lines, optional if obvious).
       2. A line that starts with exactly `COMMAND: ` followed by the shell command.
 
@@ -75,19 +108,17 @@ module How
       #{privilege_context}
 
       Before answering:
-      - You may run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      - #{investigate_instruction}
       - Check that commands you plan to suggest are actually available.
       - Prefer concise commands tailored to the current environment over generic ones.
 
       Always respond with exactly one COMMAND: line. If the task requires multiple commands, chain them with && or ; or pipes as appropriate.
       Do not wrap the command in backticks or code blocks.
-
-      User request: #{prompt}
     PROMPT
   end
 
-  def build_fix_prompt(cwd:, failed_cmd:, exit_code:, user_hint: "", terminal_output: nil)
-    system_prompt = <<~PROMPT
+  def system_prompt_fix(cwd:)
+    <<~PROMPT
       You are a shell command fixer. The user ran a command and wants to fix or modify it.
       If the command failed (non-zero exit code), diagnose and correct the error.
       If the user provides additional instructions, modify the command accordingly.
@@ -101,31 +132,172 @@ module How
       #{privilege_context}
 
       Before answering:
-      - You may run read-only commands to investigate the system (e.g., which, man, ls, grep, dpkg, brew, pkg-config, apt list, rpm).
+      - #{investigate_instruction}
       - Check that commands you plan to suggest are actually available.
       - Prefer concise commands tailored to the current environment over generic ones.
 
       Always respond with exactly one COMMAND: line.
       Do not wrap the command in backticks or code blocks.
     PROMPT
+  end
 
+  # For codex: build a single flat prompt (codex handles tools internally)
+  def build_how_prompt(cwd:, prompt:)
+    "#{system_prompt_how(cwd: cwd, prompt: prompt)}\nUser request: #{prompt}"
+  end
+
+  def build_fix_prompt(cwd:, failed_cmd:, exit_code:, user_hint: "", terminal_output: nil)
+    sys = system_prompt_fix(cwd: cwd)
     request = "Previous command: #{failed_cmd}\nExit code: #{exit_code}"
     request += "\nUser instructions: #{user_hint}" unless user_hint.empty?
-    if terminal_output
-      request += "\n\nRecent terminal output:\n#{terminal_output}"
+    request += "\n\nRecent terminal output:\n#{terminal_output}" if terminal_output
+    "#{sys}\n#{request}"
+  end
+
+  TOOL_DEFINITION = {
+    type: "function",
+    function: {
+      name: "run_command",
+      description: "Run a read-only shell command to investigate the system (e.g., which, ls, man, grep, dpkg, apt list, brew, pkg-config, rpm). Do not use this to run commands that modify the system.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "The shell command to run" }
+        },
+        required: ["command"]
+      }
+    }
+  }.freeze
+
+  ALLOWED_COMMANDS = %w[
+    which where type
+    ls stat file find
+    cat head tail wc
+    grep egrep fgrep rg
+    man help
+    uname hostname id whoami
+    env printenv
+    pkg-config
+    sw_vers lsb_release
+    ps
+  ].freeze
+
+  # Package managers: only allow read-only subcommands
+  PKG_MANAGER_READ_ONLY = {
+    "dpkg"   => %w[-l -L -s -S --list --listfiles --status --search],
+    "apt"    => %w[list show search],
+    "rpm"    => %w[-q -qa -qi -ql --query],
+    "yum"    => %w[list info search],
+    "dnf"    => %w[list info search],
+    "pacman" => %w[-Q -Qi -Ql -Ss -Si],
+    "apk"    => %w[list info search],
+    "brew"   => %w[list info search ls leaves deps],
+    "port"   => %w[list installed search info],
+    "pkg"    => %w[info list search query],
+  }.freeze
+
+  def command_allowed?(cmd)
+    words = cmd.strip.split(/\s+/)
+    first_word = words.first
+    return true if ALLOWED_COMMANDS.include?(first_word)
+
+    if PKG_MANAGER_READ_ONLY.key?(first_word)
+      subcmd = words[1]
+      return subcmd && PKG_MANAGER_READ_ONLY[first_word].any? { |allowed| subcmd.start_with?(allowed) }
     end
 
-    "#{system_prompt}\n#{request}"
+    false
+  end
+
+  def execute_tool(name, arguments)
+    case name
+    when "run_command"
+      cmd = arguments["command"]
+      unless command_allowed?(cmd)
+        return "Error: only read-only commands are allowed (e.g., which, ls, grep, man, dpkg, brew list). '#{cmd}' was rejected."
+      end
+      output, _status = Open3.capture2e(cmd)
+      output.strip
+    else
+      "Unknown tool: #{name}"
+    end
+  end
+
+  def call_api(config, system:, user_message:)
+    uri = URI("#{config[:base_url]}/v1/chat/completions")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == "https")
+    http.open_timeout = 10
+    http.read_timeout = 60
+
+    messages = [
+      { role: "system", content: system },
+      { role: "user", content: user_message }
+    ]
+
+    MAX_TOOL_ROUNDS.times do
+      body = {
+        model: config[:model],
+        messages: messages,
+        tools: [TOOL_DEFINITION]
+      }
+
+      request = Net::HTTP::Post.new(uri)
+      request["Content-Type"] = "application/json"
+      request.body = JSON.generate(body)
+
+      response = http.request(request)
+      unless response.is_a?(Net::HTTPSuccess)
+        $stderr.puts "how: API error #{response.code}: #{response.body}"
+        return nil
+      end
+
+      data = JSON.parse(response.body)
+      choice = data.dig("choices", 0, "message")
+
+      tool_calls = choice["tool_calls"]
+      if tool_calls && !tool_calls.empty?
+        # Add assistant message with tool calls
+        messages << choice
+
+        # Execute each tool call and add results
+        tool_calls.each do |tc|
+          args = JSON.parse(tc.dig("function", "arguments"))
+          result = execute_tool(tc.dig("function", "name"), args)
+          messages << {
+            role: "tool",
+            tool_call_id: tc["id"],
+            content: result
+          }
+        end
+      else
+        # Text response — check if it has the required COMMAND: line
+        text = choice["content"]&.strip
+        return text unless text.nil? || text.empty?
+        return nil if text.nil? || text.empty?
+
+        cmd, _ = parse_response(text)
+        return text if cmd
+
+        # Missing COMMAND: line — ask the model to correct
+        messages << { role: "assistant", content: text }
+        messages << { role: "user", content: "Your response must include a line starting with `COMMAND: ` followed by the shell command. Please try again." }
+      end
+    end
+
+    $stderr.puts "how: too many rounds"
+    nil
   end
 
   def call_codex(prompt)
+    config = model_config
     tmpfile = Tempfile.new("how")
     begin
       cmd = ["codex", "exec",
         "--skip-git-repo-check",
         "-C", ENV["HOME"],
         "-s", "read-only"]
-      cmd += ["-m", model] if ENV["HOW_MODEL"]
+      cmd += ["-m", config[:model]] if config[:model]
       cmd += ["-o", tmpfile.path, prompt]
 
       _stdout, _stderr, status = Open3.capture3(*cmd)
@@ -137,6 +309,16 @@ module How
     ensure
       tmpfile.close
       tmpfile.unlink
+    end
+  end
+
+  def call_llm(system:, user_message:)
+    config = model_config
+    if config[:type] == :api
+      call_api(config, system: system, user_message: user_message)
+    else
+      # Codex path: flatten into a single prompt
+      call_codex("#{system}\n#{user_message}")
     end
   end
 
@@ -154,10 +336,10 @@ module How
     [cmd, explanation]
   end
 
-  def generate(full_prompt)
-    response = call_codex(full_prompt)
+  def generate(system:, user_message:)
+    response = call_llm(system: system, user_message: user_message)
     if response.nil?
-      $stderr.puts "how: no response from codex"
+      $stderr.puts "how: no response from LLM"
       exit 1
     end
 
@@ -182,7 +364,10 @@ module How
     cwd = args[0]
     prompt = args[1..].join(" ")
 
-    generate(build_how_prompt(cwd: cwd, prompt: prompt))
+    generate(
+      system: system_prompt_how(cwd: cwd, prompt: prompt),
+      user_message: "User request: #{prompt}"
+    )
   end
 
   def run_fixit(args)
@@ -206,13 +391,14 @@ module How
 
     terminal_output = capture_terminal_output
 
-    generate(build_fix_prompt(
-      cwd: cwd,
-      failed_cmd: failed_cmd,
-      exit_code: exit_code,
-      user_hint: user_hint,
-      terminal_output: terminal_output
-    ))
+    request = "Previous command: #{failed_cmd}\nExit code: #{exit_code}"
+    request += "\nUser instructions: #{user_hint}" unless user_hint.empty?
+    request += "\n\nRecent terminal output:\n#{terminal_output}" if terminal_output
+
+    generate(
+      system: system_prompt_fix(cwd: cwd),
+      user_message: request
+    )
   end
 end
 
