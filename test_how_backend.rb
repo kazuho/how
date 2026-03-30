@@ -65,24 +65,23 @@ end
 
 class TestBuildFixPrompt < Minitest::Test
   def test_includes_failed_command
-    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "gti status", exit_code: "127")
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "gti status")
     assert_includes prompt, "gti status"
-    assert_includes prompt, "127"
   end
 
   def test_includes_user_hint
-    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "0", user_hint: "sort by size")
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", user_hint: "sort by size")
     assert_includes prompt, "sort by size"
   end
 
   def test_no_user_hint
-    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "0")
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls")
     refute_includes prompt, "User instructions:"
   end
 
   def test_includes_terminal_output
     prompt = How.build_fix_prompt(
-      cwd: "/tmp", failed_cmd: "gcc foo.c", exit_code: "1",
+      cwd: "/tmp", failed_cmd: "gcc foo.c",
       terminal_output: "foo.c:3: error: expected ';'"
     )
     assert_includes prompt, "foo.c:3: error: expected ';'"
@@ -90,7 +89,7 @@ class TestBuildFixPrompt < Minitest::Test
   end
 
   def test_no_terminal_output
-    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "0")
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls")
     refute_includes prompt, "Recent terminal output:"
   end
 end
@@ -124,7 +123,7 @@ class TestPrivilegeContext < Minitest::Test
   end
 
   def test_fix_prompt_includes_privilege_info
-    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls", exit_code: "1")
+    prompt = How.build_fix_prompt(cwd: "/tmp", failed_cmd: "ls")
     assert_includes prompt, "Running as"
   end
 end
@@ -142,4 +141,3 @@ class TestModel < Minitest::Test
     ENV.delete("HOW_MODEL")
   end
 end
-
