@@ -159,3 +159,37 @@ class TestModel < Minitest::Test
     ENV.delete("HOW_MODEL")
   end
 end
+
+class TestCallCodex < Minitest::Test
+  def test_scrubs_invalid_bytes_in_output_file
+    fake_status = Object.new
+    def fake_status.success? = true
+
+    tmpfile = Tempfile.new("how-test")
+    File.binwrite(tmpfile.path, "COMMAND: echo ok\xFF".b)
+
+    open3_singleton = class << Open3; self; end
+    tempfile_singleton = class << Tempfile; self; end
+
+    open3_singleton.alias_method :__orig_capture3_for_test, :capture3
+    tempfile_singleton.alias_method :__orig_new_for_test, :new
+
+    open3_singleton.define_method(:capture3) { |*| ["", "", fake_status] }
+    tempfile_singleton.define_method(:new) { |*| tmpfile }
+
+    result = How.call_codex("ignored")
+    assert_equal "COMMAND: echo ok\ufffd", result
+  ensure
+    if open3_singleton&.method_defined?(:__orig_capture3_for_test)
+      open3_singleton.alias_method :capture3, :__orig_capture3_for_test
+      open3_singleton.remove_method :__orig_capture3_for_test
+    end
+
+    if tempfile_singleton&.method_defined?(:__orig_new_for_test)
+      tempfile_singleton.alias_method :new, :__orig_new_for_test
+      tempfile_singleton.remove_method :__orig_new_for_test
+    end
+
+    tmpfile.close!
+  end
+end

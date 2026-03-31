@@ -144,7 +144,7 @@ module How
 
       return nil unless status.success?
 
-      result = File.read(tmpfile.path).strip
+      result = normalize_terminal_output(File.binread(tmpfile.path))
       result.empty? ? nil : result
     ensure
       tmpfile.close
