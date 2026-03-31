@@ -6,7 +6,7 @@
 #
 # Usage:
 #   how-backend.rb how <cwd> <prompt...>
-#   how-backend.rb fixit <cwd> <exit_code> <failed_command> [-- <user instructions>]
+#   how-backend.rb fixit <cwd> <previous_command> [-- <user instructions>]
 #
 # Environment variables:
 #   HOW_MODEL - model to use (default: o4-mini)
@@ -64,6 +64,14 @@ module How
     nil
   end
 
+  def terminal_output_required_for_fix
+    output = capture_terminal_output
+    return output if output
+
+    $stderr.puts "fix: requires tmux or GNU screen so recent terminal output can be captured"
+    exit 1
+  end
+
   def build_how_prompt(cwd:, prompt:)
     <<~PROMPT
       You are a shell command generator. The user describes what they want to do, and you respond with:
@@ -86,10 +94,10 @@ module How
     PROMPT
   end
 
-  def build_fix_prompt(cwd:, failed_cmd:, exit_code:, user_hint: "", terminal_output: nil)
+  def build_fix_prompt(cwd:, failed_cmd:, user_hint: "", terminal_output: nil)
     system_prompt = <<~PROMPT
       You are a shell command fixer. The user ran a command and wants to fix or modify it.
-      If the command failed (non-zero exit code), diagnose and correct the error.
+      Use the previous command and any recent terminal output to infer what went wrong or what should change.
       If the user provides additional instructions, modify the command accordingly.
 
       Respond with:
@@ -109,7 +117,7 @@ module How
       Do not wrap the command in backticks or code blocks.
     PROMPT
 
-    request = "Previous command: #{failed_cmd}\nExit code: #{exit_code}"
+    request = "Previous command: #{failed_cmd}"
     request += "\nUser instructions: #{user_hint}" unless user_hint.empty?
     if terminal_output
       request += "\n\nRecent terminal output:\n#{terminal_output}"
@@ -186,30 +194,28 @@ module How
   end
 
   def run_fixit(args)
-    if args.length < 3
-      $stderr.puts "Usage: how-backend.rb fixit <cwd> <exit_code> <failed_command>"
+    if args.length < 2
+      $stderr.puts "Usage: how-backend.rb fixit <cwd> <previous_command>"
       exit 1
     end
 
     cwd = args[0]
-    exit_code = args[1]
 
     # Split on "--" separator: args before are <failed_command>, after are <user instructions>
-    sep = args[2..].index("--")
+    sep = args[1..].index("--")
     if sep
-      failed_cmd = args[2, sep].join(" ")
-      user_hint = args[(2 + sep + 1)..].join(" ")
+      failed_cmd = args[1, sep].join(" ")
+      user_hint = args[(1 + sep + 1)..].join(" ")
     else
-      failed_cmd = args[2..].join(" ")
+      failed_cmd = args[1..].join(" ")
       user_hint = ""
     end
 
-    terminal_output = capture_terminal_output
+    terminal_output = terminal_output_required_for_fix
 
     generate(build_fix_prompt(
       cwd: cwd,
       failed_cmd: failed_cmd,
-      exit_code: exit_code,
       user_hint: user_hint,
       terminal_output: terminal_output
     ))
