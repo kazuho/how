@@ -64,6 +64,14 @@ module How
     nil
   end
 
+  def terminal_output_required_for_fix
+    output = capture_terminal_output
+    return output if output
+
+    $stderr.puts "fix: requires tmux or GNU screen so recent terminal output can be captured"
+    exit 1
+  end
+
   def build_how_prompt(cwd:, prompt:)
     <<~PROMPT
       You are a shell command generator. The user describes what they want to do, and you respond with:
@@ -203,7 +211,7 @@ module How
       user_hint = ""
     end
 
-    terminal_output = capture_terminal_output
+    terminal_output = terminal_output_required_for_fix
 
     generate(build_fix_prompt(
       cwd: cwd,

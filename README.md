@@ -40,7 +40,7 @@ how do I compress this directory into a tar.gz
 fix [optional instructions]
 ```
 
-Fixes or modifies the previous command from shell history. Without arguments, it diagnoses the issue from the command and recent terminal output. With arguments, it modifies the command as instructed (e.g., `fix sort by date`).
+Fixes or modifies the previous command from shell history. It requires [tmux](https://github.com/tmux/tmux) or [GNU screen](https://www.gnu.org/software/screen/) so it can inspect recent terminal output. With arguments, it modifies the command as instructed (e.g., `fix sort by date`).
 
 ```
 $ gti status
@@ -50,4 +50,4 @@ $ fix
 git status             # ← appears at your prompt, ready to run
 ```
 
-When running inside [tmux](https://github.com/tmux/tmux) or [GNU screen](https://www.gnu.org/software/screen/), `fix` reads recent terminal output to see error messages and other context, helping it diagnose problems more accurately.
+`fix` exits with an error unless it is running inside [tmux](https://github.com/tmux/tmux) or [GNU screen](https://www.gnu.org/software/screen/).

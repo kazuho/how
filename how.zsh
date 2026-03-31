@@ -52,12 +52,26 @@ _how_run() {
 }
 
 _how_last_history_cmd() {
-  local cmd
-  cmd=$(fc -ln -1 2>/dev/null)
-  cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-  cmd="${cmd%"${cmd##*[![:space:]]}"}"
-  [[ -n "$cmd" ]] || return 1
-  print -r -- "$cmd"
+  local entries cmd i
+  entries=("${(@f)$(fc -ln -20 2>/dev/null)}")
+
+  for (( i = ${#entries}; i >= 1; --i )); do
+    cmd="${entries[i]}"
+    cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+    cmd="${cmd%"${cmd##*[![:space:]]}"}"
+    [[ -n "$cmd" ]] || continue
+
+    case "$cmd" in
+      fix|fix\ *|how|how\ *|[A-Za-z_][A-Za-z0-9_]*=*[\ ]fix|[A-Za-z_][A-Za-z0-9_]*=*[\ ]fix\ *|[A-Za-z_][A-Za-z0-9_]*=*[\ ]how|[A-Za-z_][A-Za-z0-9_]*=*[\ ]how\ *)
+        continue
+        ;;
+    esac
+
+    print -r -- "$cmd"
+    return 0
+  done
+
+  return 1
 }
 
 how() {

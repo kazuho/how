@@ -105,6 +105,19 @@ class TestCaptureTerminalOutput < Minitest::Test
   end
 end
 
+class TestTerminalOutputRequiredForFix < Minitest::Test
+  def test_exits_when_no_tmux_or_screen
+    original_tmux = ENV.delete("TMUX")
+    original_sty = ENV.delete("STY")
+
+    err = assert_raises(SystemExit) { How.terminal_output_required_for_fix }
+    assert_equal 1, err.status
+  ensure
+    ENV["TMUX"] = original_tmux if original_tmux
+    ENV["STY"] = original_sty if original_sty
+  end
+end
+
 class TestPrivilegeContext < Minitest::Test
   def test_returns_string
     ctx = How.privilege_context
