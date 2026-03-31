@@ -50,18 +50,22 @@ module How
   # Capture recent terminal output from tmux or screen, if available.
   def capture_terminal_output(lines: 50)
     if ENV["TMUX"]
-      output = `tmux capture-pane -p -S -#{lines} 2>/dev/null`.strip
+      output = normalize_terminal_output(`tmux capture-pane -p -S -#{lines} 2>/dev/null`)
       return output unless output.empty?
     elsif ENV["STY"]
       tmpfile = "/tmp/how_screen_hardcopy.#{$$}"
       system("screen", "-X", "hardcopy", tmpfile)
       if File.exist?(tmpfile)
-        output = File.read(tmpfile).strip
+        output = normalize_terminal_output(File.binread(tmpfile))
         File.delete(tmpfile)
         return output unless output.empty?
       end
     end
     nil
+  end
+
+  def normalize_terminal_output(output)
+    output.dup.force_encoding(Encoding::UTF_8).scrub.strip
   end
 
   def terminal_output_required_for_fix
