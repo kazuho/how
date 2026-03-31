@@ -103,6 +103,11 @@ class TestCaptureTerminalOutput < Minitest::Test
     ENV["TMUX"] = original_tmux if original_tmux
     ENV["STY"] = original_sty if original_sty
   end
+
+  def test_normalize_terminal_output_scrubs_invalid_bytes
+    output = How.normalize_terminal_output("ok\xFFng".b)
+    assert_equal "ok\ufffdng", output
+  end
 end
 
 class TestTerminalOutputRequiredForFix < Minitest::Test
