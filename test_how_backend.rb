@@ -98,10 +98,23 @@ class TestCaptureTerminalOutput < Minitest::Test
   def test_no_tmux_no_screen
     original_tmux = ENV.delete("TMUX")
     original_sty = ENV.delete("STY")
+    original_term = ENV.delete("TERM")
     assert_nil How.capture_terminal_output
   ensure
     ENV["TMUX"] = original_tmux if original_tmux
     ENV["STY"] = original_sty if original_sty
+    ENV["TERM"] = original_term if original_term
+  end
+
+  def test_screen_session_accepts_screen_term_without_sty
+    original_sty = ENV.delete("STY")
+    original_term = ENV["TERM"]
+    ENV["TERM"] = "screen.xterm-256color"
+
+    assert How.screen_session?
+  ensure
+    ENV["STY"] = original_sty if original_sty
+    ENV["TERM"] = original_term if original_term
   end
 end
 
@@ -109,12 +122,14 @@ class TestTerminalOutputRequiredForFix < Minitest::Test
   def test_exits_when_no_tmux_or_screen
     original_tmux = ENV.delete("TMUX")
     original_sty = ENV.delete("STY")
+    original_term = ENV.delete("TERM")
 
     err = assert_raises(SystemExit) { How.terminal_output_required_for_fix }
     assert_equal 1, err.status
   ensure
     ENV["TMUX"] = original_tmux if original_tmux
     ENV["STY"] = original_sty if original_sty
+    ENV["TERM"] = original_term if original_term
   end
 end
 

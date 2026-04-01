@@ -52,7 +52,7 @@ module How
     if ENV["TMUX"]
       output = `tmux capture-pane -p -S -#{lines} 2>/dev/null`.strip
       return output unless output.empty?
-    elsif ENV["STY"]
+    elsif screen_session?
       tmpfile = "/tmp/how_screen_hardcopy.#{$$}"
       system("screen", "-X", "hardcopy", tmpfile)
       if File.exist?(tmpfile)
@@ -64,11 +64,17 @@ module How
     nil
   end
 
+  def screen_session?
+    return true if ENV["STY"]
+
+    term = ENV["TERM"]
+    term && term.start_with?("screen")
+  end
   def terminal_output_required_for_fix
     output = capture_terminal_output
     return output if output
 
-    $stderr.puts "fix: requires tmux or GNU screen so recent terminal output can be captured"
+    $stderr.puts "fix: requires tmux or a screen-compatible terminal so recent terminal output can be captured"
     exit 1
   end
 
